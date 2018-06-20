@@ -108,13 +108,28 @@ func ScanMap(rows Rows) ([]map[string]interface{}, error) {
 	return resolveDataFromRows(rows)
 }
 
+// CloseErr is the error occurs when rows.Close()
+type CloseErr struct {
+	err error
+}
+
+func (e CloseErr) Error() string {
+	return e.err.Error()
+}
+
+func newCloseErr(err error) error {
+	return CloseErr{err}
+}
+
 // ScanMapClose is the same as ScanMap and close the rows
 func ScanMapClose(rows Rows) ([]map[string]interface{}, error) {
 	result, err := ScanMap(rows)
-	if nil != err {
-		return nil, err
+	if nil != rows {
+		errClose := rows.Close()
+		if err == nil {
+			err = newCloseErr(errClose)
+		}
 	}
-	err = rows.Close()
 	return result, err
 }
 
@@ -123,8 +138,9 @@ func ScanMapClose(rows Rows) ([]map[string]interface{}, error) {
 func ScanClose(rows Rows, target interface{}) error {
 	err := Scan(rows, target)
 	if nil != rows {
-		if nil == err {
-			err = rows.Close()
+		errClose := rows.Close()
+		if err == nil {
+			err = newCloseErr(errClose)
 		}
 	}
 	return err
@@ -208,6 +224,8 @@ func bind(result map[string]interface{}, target interface{}) (resp error) {
 	return nil
 }
 
+type convertErrWrapper func(from, to reflect.Type) ScanErr
+
 func isIntSeriesType(k reflect.Kind) bool {
 	return k >= reflect.Int && k <= reflect.Int64
 }
@@ -265,7 +283,7 @@ func lookUpTagName(typeObj reflect.StructField) (string, bool) {
 	return name, ok
 }
 
-func convert(mapValue interface{}, valuei reflect.Value, wrapErr func(from, to reflect.Type) ScanErr) error {
+func convert(mapValue interface{}, valuei reflect.Value, wrapErr convertErrWrapper) error {
 	//vit: ValueI Type
 	vit := valuei.Type()
 	//mvt: MapValue Type
@@ -318,7 +336,7 @@ func convert(mapValue interface{}, valuei reflect.Value, wrapErr func(from, to r
 	return nil
 }
 
-func handleConvertSlice(mapValue interface{}, mvt, vit reflect.Type, valuei *reflect.Value, wrapErr func(from, to reflect.Type) ScanErr) error {
+func handleConvertSlice(mapValue interface{}, mvt, vit reflect.Type, valuei *reflect.Value, wrapErr convertErrWrapper) error {
 	mapValueSlice, ok := mapValue.([]byte)
 	if !ok {
 		return ErrSliceToString
@@ -348,31 +366,36 @@ func handleConvertSlice(mapValue interface{}, mvt, vit reflect.Type, valuei *ref
 		valuei.SetFloat(floatVal)
 	default:
 		if _, ok := valuei.Interface().(ByteUnmarshaler); ok {
-			var pt reflect.Value
-			initFlag := false
-			// init pointer
-			if valuei.IsNil() {
-				pt = reflect.New(valuei.Type().Elem())
-				initFlag = true
-			} else {
-				pt = *valuei
-			}
-			err := pt.Interface().(ByteUnmarshaler).UnmarshalByte(mapValueSlice)
-			if nil != err {
-				structName := pt.Elem().Type().Name()
-				return fmt.Errorf("[scanner]: %s.UnmarshalByte fail to unmarshal the bytes, err: %s", structName, err)
-			}
-			if initFlag {
-				valuei.Set(pt)
-			}
-		} else {
-			return wrapErr(mvt, vit)
+			return byteUnmarshal(mapValueSlice, valuei, wrapErr)
 		}
+		return wrapErr(mvt, vit)
 	}
 	return nil
 }
 
-func handleConvertTime(assertT time.Time, mvt, vit reflect.Type, valuei *reflect.Value, wrapErr func(from, to reflect.Type) ScanErr) error {
+// valuei Here is the type of ByteUnmarshaler
+func byteUnmarshal(mapValueSlice []byte, valuei *reflect.Value, wrapErr convertErrWrapper) error {
+	var pt reflect.Value
+	initFlag := false
+	// init pointer
+	if valuei.IsNil() {
+		pt = reflect.New(valuei.Type().Elem())
+		initFlag = true
+	} else {
+		pt = *valuei
+	}
+	err := pt.Interface().(ByteUnmarshaler).UnmarshalByte(mapValueSlice)
+	if nil != err {
+		structName := pt.Elem().Type().Name()
+		return fmt.Errorf("[scanner]: %s.UnmarshalByte fail to unmarshal the bytes, err: %s", structName, err)
+	}
+	if initFlag {
+		valuei.Set(pt)
+	}
+	return nil
+}
+
+func handleConvertTime(assertT time.Time, mvt, vit reflect.Type, valuei *reflect.Value, wrapErr convertErrWrapper) error {
 	if vit.Kind() == reflect.String {
 		sTime := assertT.Format(cTimeFormat)
 		valuei.SetString(sTime)

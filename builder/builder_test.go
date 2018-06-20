@@ -91,6 +91,36 @@ func TestBuildHaving(t *testing.T) {
 				err:  nil,
 			},
 		},
+		{
+			in: inStruct{
+				table: "tb",
+				where: map[string]interface{}{
+					"_limit": []uint{1},
+					"age in": []interface{}{1, 2, 3},
+				},
+				selectField: []string{"name, age"},
+			},
+			out: outStruct{
+				cond: "SELECT name, age FROM tb WHERE (age IN (?,?,?)) LIMIT 0,1",
+				vals: []interface{}{1, 2, 3},
+				err:  nil,
+			},
+		},
+		{
+			in: inStruct{
+				table: "tb",
+				where: map[string]interface{}{
+					"_limit": []uint{2, 1},
+					"age in": []interface{}{1, 2, 3},
+				},
+				selectField: []string{"name, age"},
+			},
+			out: outStruct{
+				cond: "SELECT name, age FROM tb WHERE (age IN (?,?,?)) LIMIT 2,1",
+				vals: []interface{}{1, 2, 3},
+				err:  nil,
+			},
+		},
 	}
 	ass := assert.New(t)
 	for _, tc := range data {
@@ -586,6 +616,91 @@ func Test_BuildOrderBy(t *testing.T) {
 			},
 			out: outStruct{
 				cond: "SELECT id,name,age FROM tb WHERE (foo=?) ORDER BY age DESC,id ASC",
+				vals: []interface{}{"bar"},
+				err:  nil,
+			},
+		},
+	}
+	ass := assert.New(t)
+	for _, tc := range data {
+		cond, vals, err := BuildSelect(tc.in.table, tc.in.where, tc.in.fields)
+		ass.Equal(tc.out.err, err)
+		ass.Equal(tc.out.cond, cond)
+		ass.Equal(tc.out.vals, vals)
+	}
+}
+
+func Test_Where_Null(t *testing.T) {
+	type inStruct struct {
+		table  string
+		where  map[string]interface{}
+		fields []string
+	}
+	type outStruct struct {
+		cond string
+		vals []interface{}
+		err  error
+	}
+	var data = []struct {
+		in  inStruct
+		out outStruct
+	}{
+		{
+			in: inStruct{
+				table: "tb",
+				where: map[string]interface{}{
+					"aa": IsNotNull,
+				},
+				fields: []string{"id", "name"},
+			},
+			out: outStruct{
+				cond: "SELECT id,name FROM tb WHERE (aa IS NOT NULL)",
+				vals: nil,
+				err:  nil,
+			},
+		},
+		{
+			in: inStruct{
+				table: "tb",
+				where: map[string]interface{}{
+					"aa":  IsNotNull,
+					"foo": "bar",
+				},
+				fields: []string{"id", "name", "age"},
+			},
+			out: outStruct{
+				cond: "SELECT id,name,age FROM tb WHERE (foo=? AND aa IS NOT NULL)",
+				vals: []interface{}{"bar"},
+				err:  nil,
+			},
+		},
+		{
+			in: inStruct{
+				table: "tb",
+				where: map[string]interface{}{
+					"aa":  IsNull,
+					"foo": "bar",
+				},
+				fields: []string{"id", "name", "age"},
+			},
+			out: outStruct{
+				cond: "SELECT id,name,age FROM tb WHERE (foo=? AND aa IS NULL)",
+				vals: []interface{}{"bar"},
+				err:  nil,
+			},
+		},
+		{
+			in: inStruct{
+				table: "tb",
+				where: map[string]interface{}{
+					"aa":  IsNull,
+					"foo": "bar",
+					"bb":  IsNotNull,
+				},
+				fields: []string{"id", "name", "age"},
+			},
+			out: outStruct{
+				cond: "SELECT id,name,age FROM tb WHERE (foo=? AND aa IS NULL AND bb IS NOT NULL)",
 				vals: []interface{}{"bar"},
 				err:  nil,
 			},

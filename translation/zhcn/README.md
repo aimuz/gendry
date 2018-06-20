@@ -44,17 +44,18 @@ builder不是一个ORM（我们开发Gendry的重要原因之一就是不喜欢O
 
 ```go
 where := map[string]interface{}{
-	"city in": []interface{}{"beijing", "shanghai"},
+	"city in": []string{"beijing", "shanghai"},
 	"score": 5,
 	"age >": 35,
+	"address": builder.IsNotNull,
 	"_orderby": "bonus desc",
-	"_grouoby": "department",
+	"_groupby": "department",
 }
 table := "some_table"
 selectFields := []string{"name", "age", "sex"}
 cond, values, err := builder.BuildSelect(table, where, selectFields)
 
-//cond = SELECT name,age,sex FROM g_xxx WHERE cityIN (?,?) AND score=? AND age>? GROUP BY department ORDER BY bonus DESC
+//cond = SELECT name,age,sex FROM g_xxx WHERE (score=? AND city IN (?,?) AND age>? AND address IS NOT NULL) GROUP BY department ORDER BY bonus DESC
 //values = []interface{}{"beijing", "shanghai", 5, 35}
 
 rows,err := db.Query(cond, values...)
@@ -92,7 +93,7 @@ slice类型的值会根据slice的长度自动展开
 这种方式基本上就是手写sql，非常便于DBA review同时也方便开发者进行复杂sql的调优  
 **对于关键系统，推荐使用这种方式**
 
-具体文档看[builder](../builder/README.md)
+具体文档看[builder](../../builder/README.md)
 
 <h3 id="scanner">Scanner</h3>
 执行了数据库操作之后，要把返回的结果集和自定义的struct进行映射。Scanner提供一个简单的接口通过反射来进行结果集和自定义类型的绑定:
